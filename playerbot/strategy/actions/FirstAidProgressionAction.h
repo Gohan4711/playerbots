@@ -11,8 +11,5 @@ namespace ai
         FirstAidProgressionAction(PlayerbotAI* ai, std::string name = "first aid progression") : Action(ai, name) {}
 
         bool Execute(Event& event) override;
-
-    private:
-        bool AddBook(uint32 itemId);
     };
 }

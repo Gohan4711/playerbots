@@ -1,28 +1,8 @@
 #include "FirstAidProgressionAction.h"
 
-#include "Entities/Item.h"
 #include "Entities/Player.h"
 
 using namespace ai;
-
-bool FirstAidProgressionAction::AddBook(uint32 itemId)
-{
-    if (bot->HasItemCount(itemId, 1))
-        return false;
-
-    ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
-    if (!proto)
-        return false;
-
-    ItemPosCountVec itemVec;
-    InventoryResult result = bot->CanStoreNewItem(NULL_BAG, NULL_SLOT, itemVec, itemId, 1);
-
-    if (result != EQUIP_ERR_OK)
-        return false;
-
-    bot->StoreNewItemInInventorySlot(itemId, 1);
-    return true;
-}
 
 bool FirstAidProgressionAction::Execute(Event& event)
 {
@@ -31,21 +11,32 @@ bool FirstAidProgressionAction::Execute(Event& event)
 
     uint32 skill = bot->GetSkillValue(SKILL_FIRST_AID);
 
-    // Expert First Aid - Under Wraps
+    // Expert First Aid.
+    // Use the original teaching spell so the normal skill-cap increase is
+    // handled by the core, without requiring the physical book.
     if (skill >= 125 && !bot->HasSpell(7924))
-        return AddBook(16084);
+    {
+        bot->CastSpell(bot, 19903, TRIGGERED_OLD_TRIGGERED);
+        return true;
+    }
 
-    // Manual: Heavy Silk Bandage
+    // Heavy Silk Bandage.
     if (skill >= 180 && !bot->HasSpell(7929))
-        return AddBook(16112);
+    {
+        bot->learnSpell(7929, false);
+        return true;
+    }
 
-    // Manual: Mageweave Bandage
+    // Mageweave Bandage.
     if (skill >= 210 && !bot->HasSpell(10840))
-        return AddBook(16113);
+    {
+        bot->learnSpell(10840, false);
+        return true;
+    }
 
     // Artisan First Aid.
-    // Triage is deliberately skipped, but the original teaching spell is used
-    // so the normal First Aid spell and skill step are applied by the core.
+    // Triage is skipped; the original teaching spell applies the normal
+    // Artisan spell and skill step.
     if (skill >= 225 && bot->GetLevel() >= 35 && !bot->HasSpell(10846))
     {
         bot->CastSpell(bot, 10847, TRIGGERED_OLD_TRIGGERED);
