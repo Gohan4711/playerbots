@@ -421,6 +421,10 @@ bool RpgAIChatAction::WaitForLines()
 
 bool RpgAIChatAction::RequestNewLines()
 {
+    // Safety gate: Alliance bots never generate LLM dialogue.
+    if (bot->GetTeam() == ALLIANCE)
+        return false;
+
     if (packets.size())
         return false;
 

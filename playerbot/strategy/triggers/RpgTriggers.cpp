@@ -614,6 +614,10 @@ bool RpgQuestUseTrigger::IsActive()
 
 bool RpgAIChatTrigger::IsActive()
 {
+    // Alliance bots never use the LLM.
+    if (bot->GetTeam() == ALLIANCE)
+        return false;
+
     if (sPlayerbotAIConfig.llmEnabled == 0)
         return false;
 

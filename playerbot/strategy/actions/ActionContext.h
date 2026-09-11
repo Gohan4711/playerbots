@@ -37,6 +37,7 @@
 #include "CheckMountStateAction.h"
 #include "ChangeTalentsAction.h"
 #include "AutoLearnSpellAction.h"
+#include "FirstAidProgressionAction.h"
 #include "XpGainAction.h"
 #include "HonorGainAction.h"
 #include "InviteToGroupAction.h"
@@ -188,6 +189,7 @@ namespace ai
             creators["mount"] = [](PlayerbotAI* ai) { return new CastSpellAction(ai, "mount"); };
             creators["auto talents"] = [](PlayerbotAI* ai) { return new AutoSetTalentsAction(ai); };
 			creators["auto learn spell"] = [](PlayerbotAI* ai) { return new AutoLearnSpellAction(ai); };
+            creators["first aid progression"] = [](PlayerbotAI* ai) { return new FirstAidProgressionAction(ai); };
             creators["auto share quest"] = [](PlayerbotAI* ai) { return new AutoShareQuestAction(ai); };
             creators["xp gain"] = [](PlayerbotAI* ai) { return new XpGainAction(ai); };
             creators["honor gain"] = [](PlayerbotAI* ai) { return new HonorGainAction(ai); };

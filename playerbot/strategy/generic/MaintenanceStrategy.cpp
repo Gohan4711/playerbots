@@ -12,6 +12,10 @@ void MaintenanceStrategy::InitNonCombatTriggers(std::list<TriggerNode*> &trigger
 
     triggers.push_back(new TriggerNode(
         "random",
+        NextAction::array(0, new NextAction("first aid progression", 1.1f), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "random",
         NextAction::array(0, new NextAction("use random recipe", 1.0f), NULL)));
 
     triggers.push_back(new TriggerNode(

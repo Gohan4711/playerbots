@@ -1784,7 +1784,45 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
                     }
                 }
 
+                // Keep the original cheap mention check for normal bot chat logic.
                 bool isMentioned = message.find(bot->GetName()) != std::string::npos;
+
+                // More precise bot-name detection is only needed for real-player LLM /say.
+                bool hasBotMention = false;
+                bool isExplicitBotMention = false;
+
+                if (isAiChat && !isFromFreeBot && msgtype == CHAT_MSG_SAY)
+                {
+                    std::string mentionText = message;
+                    for (char& c : mentionText)
+                    {
+                        if (c == ',' || c == '.' || c == '!' || c == '?' || c == ':' || c == ';' ||
+                            c == '(' || c == ')' || c == '[' || c == ']' || c == '{' || c == '}')
+                            c = ' ';
+                    }
+
+                    std::vector<std::string> mentionWords;
+                    boost::split(mentionWords, mentionText, boost::is_any_of(" \t"), boost::token_compress_on);
+
+                    for (std::string mentionName : mentionWords)
+                    {
+                        if (mentionName.empty() || !normalizePlayerName(mentionName))
+                            continue;
+
+                        ObjectGuid mentionGuid = sObjectMgr.GetPlayerGuidByName(mentionName);
+                        if (!mentionGuid)
+                            continue;
+
+                        Player* mentionedPlayer = sObjectMgr.GetPlayer(mentionGuid);
+                        if (!mentionedPlayer || !mentionedPlayer->GetPlayerbotAI())
+                            continue;
+
+                        hasBotMention = true;
+
+                        if (mentionGuid == bot->GetObjectGuid())
+                            isExplicitBotMention = true;
+                    }
+                }
                 
 
                 ChatChannelSource chatChannelSource = GetChatChannelSource(bot, msgtype, chanName);
@@ -1843,8 +1881,22 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
                 }
 
                 MANGOS_ASSERT(!message.empty());     
+                // LLM real-player /say:
+                // - if a bot is named, only the named bot(s) may reply
+                // - if no bot is named, each bot has a 10% reply chance
+                // - whispers remain unrestricted
+                if (isAiChat && !isFromFreeBot &&
+                    chatChannelSource == ChatChannelSource::SRC_SAY)
+                {
+                    if (hasBotMention && !isExplicitBotMention)
+                        return;
+
+                    if (!hasBotMention && urand(0, 99) >= 10)
+                        return;
+                }
+
                 QueueChatResponse(msgtype, guid1, ObjectGuid(), message, chanName, name, isAiChat);
-                GetAiObjectContext()->GetValue<time_t>("last said", "chat")->Set(time(0) + urand(5, 25));
+                GetAiObjectContext()->GetValue<time_t>("last said", "chat")->Set(time(0) + urand(35, 55));
 
                 return;
             }

@@ -157,12 +157,25 @@ void ChatReplyAction::GetAIChatPlaceholders(std::map<std::string, std::string>& 
     WorldPosition pos(unit);
     placeholders["<" + preFix + " zone>"] = pos.getAreaName();
     placeholders["<" + preFix + " subzone>"] = pos.getAreaOverride();
+    placeholders["<" + preFix + " combat>"] = unit->IsInCombat() ? "in combat" : "not in combat";
 
     if (unit->IsPlayer())
     {
         placeholders["<" + preFix + " type>"] = "player";
         placeholders["<" + preFix + " subname>"] = "";
         placeholders["<" + preFix + " gossip>"] = "";
+
+        placeholders["<" + preFix + " target>"] = "none";
+
+        Player* playerUnit = (Player*)unit;
+        if (PlayerbotAI* unitAi = playerUnit->GetPlayerbotAI())
+        {
+            AiObjectContext* unitContext = unitAi->GetAiObjectContext();
+            Unit* currentTarget = unitContext->GetValue<Unit*>("current target")->Get();
+
+            if (currentTarget)
+                placeholders["<" + preFix + " target>"] = currentTarget->GetName();
+        }
     }
     if (unit->IsCreature())
     {
@@ -509,7 +522,7 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
         return;
     }
 
-    if (bot->GetPlayerbotAI() && sPlayerbotAIConfig.llmEnabled > 0 && (bot->GetPlayerbotAI()->HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3) && chatChannelSource != ChatChannelSource::SRC_UNDEFINED && sPlayerbotAIConfig.llmBlockedReplyChannels.find(chatChannelSource) == sPlayerbotAIConfig.llmBlockedReplyChannels.end()
+    if (bot->GetTeam() != ALLIANCE && bot->GetPlayerbotAI() && sPlayerbotAIConfig.llmEnabled > 0 && (bot->GetPlayerbotAI()->HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3) && chatChannelSource != ChatChannelSource::SRC_UNDEFINED && sPlayerbotAIConfig.llmBlockedReplyChannels.find(chatChannelSource) == sPlayerbotAIConfig.llmBlockedReplyChannels.end()
         )
     {
         Player* player = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, guid1));
@@ -531,7 +544,48 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
         {
             std::string playerName = player->GetName();
 
-            if (player != bot && (player->isRealPlayer() || (sPlayerbotAIConfig.llmBotToBotChatChance && urand(0, 99) < sPlayerbotAIConfig.llmBotToBotChatChance)))
+            bool allowLlmReply = false;
+
+            if (player != bot)
+            {
+                if (player->isRealPlayer())
+                {
+                    allowLlmReply = true;
+                }
+                else if (chatChannelSource == ChatChannelSource::SRC_SAY &&
+                         sPlayerbotAIConfig.llmBotToBotChatChance &&
+                         bot->GetMapId() == player->GetMapId() &&
+                         sServerFacade.GetDistance2d(bot, player) <= 15.0f &&
+                         [&]()
+                         {
+                             for (auto& entry : sRandomPlayerbotMgr.GetPlayers())
+                             {
+                                 Player* realPlayer = entry.second;
+                                 if (!realPlayer)
+                                     continue;
+
+                                 if (realPlayer->GetMapId() != bot->GetMapId())
+                                     continue;
+
+                                 if (realPlayer->IsGameMaster() && !realPlayer->isGMVisible())
+                                     continue;
+
+                                 if (!sServerFacade.IsFriendlyTo(bot, realPlayer))
+                                     continue;
+
+                                 if (sServerFacade.GetDistance2d(bot, realPlayer) <= 50.0f)
+                                     return true;
+                             }
+
+                             return false;
+                         }() &&
+                         urand(0, 99) < sPlayerbotAIConfig.llmBotToBotChatChance)
+                {
+                    allowLlmReply = true;
+                }
+            }
+
+            if (allowLlmReply)
             {
                 std::map<std::string, std::string> placeholders;
 
@@ -564,7 +618,7 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
                 std::string llmPromptCustom = AI_VALUE(std::string, "manual saved string::llmdefaultprompt");
 
                 std::map<std::string, std::string> jsonFill;
-                jsonFill["<pre prompt>"] = sPlayerbotAIConfig.llmPrePrompt + " " + llmPromptCustom;
+                jsonFill["<pre prompt>"] = sPlayerbotAIConfig.llmPrePrompt + " " + llmPromptCustom + " Combat status: <bot combat>. Current target: <bot target>.";
                 jsonFill["<prompt>"] = sPlayerbotAIConfig.llmPrompt;
                 jsonFill["<post prompt>"] = sPlayerbotAIConfig.llmPostPrompt;
 
