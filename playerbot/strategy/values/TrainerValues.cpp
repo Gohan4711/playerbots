@@ -214,6 +214,7 @@ std::vector<TrainerSpell const*> TrainableSpellsValue::Calculate()
 {
     std::vector<TrainerSpell const*> trainableSpells;
 
+    bool enforcePrimaryProfessionPair = sRandomPlayerbotMgr.IsRandomBot(bot);
     ResetPrimaryProfessionsOnce(bot);
     auto [primaryProfessionOne, primaryProfessionTwo] = GetPrimaryProfessionPair(ai);
 
@@ -233,10 +234,12 @@ std::vector<TrainerSpell const*> TrainableSpellsValue::Calculate()
             if (trainerType == TRAINER_TYPE_MOUNTS && requirement != bot->getRace())
                 continue;
 
-            // Primary professions are a permanent per-bot choice. Secondary professions
-            // such as Cooking, First Aid and Fishing intentionally pass through untouched.
-            if (trainerType == TRAINER_TYPE_TRADESKILLS && IsPrimaryProfession(requirement) &&
-                requirement != primaryProfessionOne && requirement != primaryProfessionTwo)
+            // Primary professions are a permanent per-random-bot choice. Player-owned bots are
+            // intentionally left untouched. Secondary professions such as Cooking, First Aid
+            // and Fishing also pass through normally.
+            if (enforcePrimaryProfessionPair && trainerType == TRAINER_TYPE_TRADESKILLS &&
+                IsPrimaryProfession(requirement) && requirement != primaryProfessionOne &&
+                requirement != primaryProfessionTwo)
                 continue;
 
             for (auto& [trainerSpell, trainers] : trainerSpellList)
