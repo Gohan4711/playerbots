@@ -8,6 +8,7 @@
 #include "Accounts/AccountMgr.h"
 #include "Database/DBCStore.h"
 #include "Globals/SharedDefines.h"
+#include "Spells/SpellMgr.h"
 #include "RandomItemMgr.h"
 #include "RandomPlayerbotFactory.h"
 #include "playerbot/ServerFacade.h"
@@ -2368,7 +2369,41 @@ void PlayerbotFactory::ClearSpells()
     }
 #endif
 #ifdef CMANGOS
-    bot->resetSpells();
+    if (sRandomPlayerbotMgr.IsRandomBot(bot))
+    {
+        std::list<uint32> professionSpells;
+
+        for (PlayerSpellMap::const_iterator itr = bot->GetSpellMap().begin();
+             itr != bot->GetSpellMap().end(); ++itr)
+        {
+            uint32 spellId = itr->first;
+
+            if (itr->second.state == PLAYERSPELL_REMOVED || itr->second.disabled)
+                continue;
+
+            SpellEntry const* spellInfo =
+                sSpellTemplate.LookupEntry<SpellEntry>(spellId);
+
+            if (SpellMgr::IsProfessionSpell(spellId) ||
+                (spellInfo &&
+                 spellInfo->HasAttribute(SPELL_ATTR_IS_TRADESKILL)))
+            {
+                professionSpells.push_back(spellId);
+            }
+        }
+
+        bot->resetSpells();
+
+        for (uint32 spellId : professionSpells)
+        {
+            if (!bot->HasSpell(spellId))
+                bot->learnSpell(spellId, false);
+        }
+    }
+    else
+    {
+        bot->resetSpells();
+    }
 #endif
 }
 
@@ -3881,6 +3916,18 @@ void PlayerbotFactory::InitAllSkills()
 
 void PlayerbotFactory::InitTradeSkills()
 {
+    if (sRandomPlayerbotMgr.IsRandomBot(bot))
+    {
+        // Secondary professions keep the original PlayerbotFactory behavior.
+        SetRandomSkill(SKILL_FIRST_AID);
+        SetRandomSkill(SKILL_FISHING);
+        SetRandomSkill(SKILL_COOKING);
+
+        // Primary professions are learned and progressed naturally through
+        // TrainerValues, gathering and crafting.
+        return;
+    }
+
     uint16 firstSkill = sRandomPlayerbotMgr.GetValue(bot, "firstSkill");
     uint16 secondSkill = sRandomPlayerbotMgr.GetValue(bot, "secondSkill");
     if (!firstSkill || !secondSkill)
@@ -4110,7 +4157,13 @@ void PlayerbotFactory::UpdateTradeSkills()
     for (int i = 0; i < sizeof(tradeSkills) / sizeof(uint32); ++i)
     {
         if (bot->GetSkillValue(tradeSkills[i]) == 1)
+        {
+            if (sRandomPlayerbotMgr.IsRandomBot(bot) &&
+                IsPrimaryProfessionSkill(tradeSkills[i]))
+                continue;
+
             bot->SetSkill(tradeSkills[i], 0, 0, 0);
+        }
     }
 }
 

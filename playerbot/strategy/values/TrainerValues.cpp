@@ -135,11 +135,11 @@ namespace
 
         checkedBots.insert(botGuid);
 
-        // v2 intentionally re-runs the migration for bots that already received the old
+        // v3 intentionally re-runs the migration for bots that already received the old
         // arbitrary-pair v1 assignment. This clears those professions before the new
         // class-weighted profession package is enforced.
         auto resetMarker = CharacterDatabase.PQuery(
-            "SELECT 1 FROM ai_playerbot_random_bots WHERE owner = 0 AND bot = '%u' AND event = 'profession_reset_v2' LIMIT 1",
+            "SELECT 1 FROM ai_playerbot_random_bots WHERE owner = 0 AND bot = '%u' AND event = 'profession_reset_v3' LIMIT 1",
             botGuid);
 
         if (resetMarker)
@@ -160,11 +160,11 @@ namespace
         // Keep the marker effectively permanent. It is only used as a row-existence marker,
         // but a long validity also prevents generic event cleanup from treating it as stale.
         CharacterDatabase.PExecute(
-            "INSERT INTO ai_playerbot_random_bots (owner, bot, `time`, validIn, event, `value`) VALUES (0, '%u', '%u', '2147483647', 'profession_reset_v2', 1)",
+            "INSERT INTO ai_playerbot_random_bots (owner, bot, `time`, validIn, event, `value`) VALUES (0, '%u', '%u', '2147483647', 'profession_reset_v3', 1)",
             botGuid, (uint32)time(0));
 
         if (resetAnyProfession)
-            sLog.outDetail("Bot %u primary professions reset for class-weighted profession migration v2", botGuid);
+            sLog.outDetail("Bot %u primary professions reset for class-weighted profession migration v3", botGuid);
     }
 }
 
