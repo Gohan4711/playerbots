@@ -4,7 +4,109 @@
 #include "SharedValueContext.h"
 #include "playerbot/PlayerbotHelpMgr.h"
 
+#include <array>
+#include <unordered_set>
+
 using namespace ai;
+
+namespace
+{
+    // Dedicated seed slot for profession assignment. BotTypeNumber currently uses 1..8.
+    // Keeping professions on their own seed prevents coupling them to any other fixed bot property.
+    constexpr BotTypeNumber PROFESSION_NUMBER = static_cast<BotTypeNumber>(9);
+
+    const std::array<uint32, 9>& PrimaryProfessions()
+    {
+        static const std::array<uint32, 9> professions =
+        {
+            SKILL_ALCHEMY,
+            SKILL_BLACKSMITHING,
+            SKILL_ENCHANTING,
+            SKILL_ENGINEERING,
+            SKILL_HERBALISM,
+            SKILL_LEATHERWORKING,
+            SKILL_MINING,
+            SKILL_SKINNING,
+            SKILL_TAILORING
+        };
+
+        return professions;
+    }
+
+    bool IsPrimaryProfession(uint32 skill)
+    {
+        const auto& professions = PrimaryProfessions();
+        return std::find(professions.begin(), professions.end(), skill) != professions.end();
+    }
+
+    std::pair<uint32, uint32> GetPrimaryProfessionPair(PlayerbotAI* ai)
+    {
+        const auto& professions = PrimaryProfessions();
+
+        // Nine professions have 36 unique two-profession combinations.
+        // GetFixedBotNumber(..., 35, 0) returns a stable value in the range 0..35.
+        uint32 pairIndex = ai->GetFixedBotNumber(PROFESSION_NUMBER, 35, 0);
+        uint32 currentPair = 0;
+
+        for (uint32 first = 0; first < professions.size(); ++first)
+        {
+            for (uint32 second = first + 1; second < professions.size(); ++second)
+            {
+                if (currentPair == pairIndex)
+                    return { professions[first], professions[second] };
+
+                ++currentPair;
+            }
+        }
+
+        // Defensive fallback; pairIndex is always 0..35 so this should never be reached.
+        return { SKILL_MINING, SKILL_BLACKSMITHING };
+    }
+
+    void ResetPrimaryProfessionsOnce(Player* bot)
+    {
+        if (!bot || !sRandomPlayerbotMgr.IsRandomBot(bot))
+            return;
+
+        // Avoid a database lookup every time TrainableSpellsValue recalculates.
+        static std::unordered_set<uint32> checkedBots;
+        uint32 botGuid = bot->GetGUIDLow();
+        if (checkedBots.find(botGuid) != checkedBots.end())
+            return;
+
+        checkedBots.insert(botGuid);
+
+        // Persistent migration marker. We deliberately check row existence directly instead of
+        // RandomPlayerbotMgr::GetValue because ordinary random-bot events expire.
+        auto resetMarker = CharacterDatabase.PQuery(
+            "SELECT 1 FROM ai_playerbot_random_bots WHERE owner = 0 AND bot = '%u' AND event = 'profession_reset_v1' LIMIT 1",
+            botGuid);
+
+        if (resetMarker)
+            return;
+
+        bool resetAnyProfession = false;
+        for (uint32 profession : PrimaryProfessions())
+        {
+            if (!bot->HasSkill(profession))
+                continue;
+
+            // Core-native unlearn path: removing the skill step also removes spells/recipes
+            // that were learned through that profession.
+            bot->SetSkillStep(uint16(profession), 0);
+            resetAnyProfession = true;
+        }
+
+        // Keep the marker effectively permanent. It is only used as a row-existence marker,
+        // but a long validity also prevents generic event cleanup from treating it as stale.
+        CharacterDatabase.PExecute(
+            "INSERT INTO ai_playerbot_random_bots (owner, bot, `time`, validIn, event, `value`) VALUES (0, '%u', '%u', '2147483647', 'profession_reset_v1', 1)",
+            botGuid, (uint32)time(0));
+
+        if (resetAnyProfession)
+            sLog.outDetail("Bot %u primary professions reset for profession-pair migration", botGuid);
+    }
+}
 
 
 trainableSpellMap* TrainableSpellMapValue::Calculate()
@@ -112,6 +214,10 @@ std::vector<TrainerSpell const*> TrainableSpellsValue::Calculate()
 {
     std::vector<TrainerSpell const*> trainableSpells;
 
+    bool enforcePrimaryProfessionPair = sRandomPlayerbotMgr.IsRandomBot(bot);
+    ResetPrimaryProfessionsOnce(bot);
+    auto [primaryProfessionOne, primaryProfessionTwo] = GetPrimaryProfessionPair(ai);
+
     int8 qualifierType = getQualifier().empty() ? -1 : stoi(getQualifier());
 
     trainableSpellMap* spellMap = GAI_VALUE(trainableSpellMap*, "trainable spell map");
@@ -126,6 +232,14 @@ std::vector<TrainerSpell const*> TrainableSpellsValue::Calculate()
             if (trainerType == TRAINER_TYPE_CLASS && requirement != bot->getClass())
                 continue;
             if (trainerType == TRAINER_TYPE_MOUNTS && requirement != bot->getRace())
+                continue;
+
+            // Primary professions are a permanent per-random-bot choice. Player-owned bots are
+            // intentionally left untouched. Secondary professions such as Cooking, First Aid
+            // and Fishing also pass through normally.
+            if (enforcePrimaryProfessionPair && trainerType == TRAINER_TYPE_TRADESKILLS &&
+                IsPrimaryProfession(requirement) && requirement != primaryProfessionOne &&
+                requirement != primaryProfessionTwo)
                 continue;
 
             for (auto& [trainerSpell, trainers] : trainerSpellList)
