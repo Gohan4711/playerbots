@@ -39,28 +39,87 @@ namespace
         return std::find(professions.begin(), professions.end(), skill) != professions.end();
     }
 
-    std::pair<uint32, uint32> GetPrimaryProfessionPair(PlayerbotAI* ai)
+    std::pair<uint32, uint32> GetPrimaryProfessionPair(PlayerbotAI* ai, Player* bot)
     {
-        const auto& professions = PrimaryProfessions();
+        // Stable 0..99 roll per bot. The class then maps that roll onto weighted,
+        // lore/gameplay-plausible profession packages instead of arbitrary combinations.
+        uint32 roll = ai->GetFixedBotNumber(PROFESSION_NUMBER, 99, 0);
 
-        // Nine professions have 36 unique two-profession combinations.
-        // GetFixedBotNumber(..., 35, 0) returns a stable value in the range 0..35.
-        uint32 pairIndex = ai->GetFixedBotNumber(PROFESSION_NUMBER, 35, 0);
-        uint32 currentPair = 0;
-
-        for (uint32 first = 0; first < professions.size(); ++first)
+        switch (bot->getClass())
         {
-            for (uint32 second = first + 1; second < professions.size(); ++second)
-            {
-                if (currentPair == pairIndex)
-                    return { professions[first], professions[second] };
+            case CLASS_WARRIOR:
+                // 50% Mining+Blacksmithing, 25% Mining+Engineering,
+                // 15% Herbalism+Alchemy, 10% Mining+Enchanting.
+                if (roll < 50) return { SKILL_MINING, SKILL_BLACKSMITHING };
+                if (roll < 75) return { SKILL_MINING, SKILL_ENGINEERING };
+                if (roll < 90) return { SKILL_HERBALISM, SKILL_ALCHEMY };
+                return { SKILL_MINING, SKILL_ENCHANTING };
 
-                ++currentPair;
-            }
+            case CLASS_PALADIN:
+                // 45% Mining+Blacksmithing, 20% Mining+Engineering,
+                // 20% Herbalism+Alchemy, 15% Mining+Enchanting.
+                if (roll < 45) return { SKILL_MINING, SKILL_BLACKSMITHING };
+                if (roll < 65) return { SKILL_MINING, SKILL_ENGINEERING };
+                if (roll < 85) return { SKILL_HERBALISM, SKILL_ALCHEMY };
+                return { SKILL_MINING, SKILL_ENCHANTING };
+
+            case CLASS_HUNTER:
+                // 45% Skinning+Leatherworking, 20% Mining+Engineering,
+                // 20% Herbalism+Alchemy, 15% Skinning+Enchanting.
+                if (roll < 45) return { SKILL_SKINNING, SKILL_LEATHERWORKING };
+                if (roll < 65) return { SKILL_MINING, SKILL_ENGINEERING };
+                if (roll < 85) return { SKILL_HERBALISM, SKILL_ALCHEMY };
+                return { SKILL_SKINNING, SKILL_ENCHANTING };
+
+            case CLASS_ROGUE:
+                // 40% Skinning+Leatherworking, 20% Mining+Engineering,
+                // 20% Herbalism+Alchemy, 20% Skinning+Enchanting.
+                if (roll < 40) return { SKILL_SKINNING, SKILL_LEATHERWORKING };
+                if (roll < 60) return { SKILL_MINING, SKILL_ENGINEERING };
+                if (roll < 80) return { SKILL_HERBALISM, SKILL_ALCHEMY };
+                return { SKILL_SKINNING, SKILL_ENCHANTING };
+
+            case CLASS_SHAMAN:
+                // 35% Skinning+Leatherworking, 25% Herbalism+Alchemy,
+                // 20% Mining+Engineering, 20% Herbalism+Enchanting.
+                if (roll < 35) return { SKILL_SKINNING, SKILL_LEATHERWORKING };
+                if (roll < 60) return { SKILL_HERBALISM, SKILL_ALCHEMY };
+                if (roll < 80) return { SKILL_MINING, SKILL_ENGINEERING };
+                return { SKILL_HERBALISM, SKILL_ENCHANTING };
+
+            case CLASS_DRUID:
+                // 35% Herbalism+Alchemy, 30% Skinning+Leatherworking,
+                // 15% Mining+Engineering, 20% Herbalism+Enchanting.
+                if (roll < 35) return { SKILL_HERBALISM, SKILL_ALCHEMY };
+                if (roll < 65) return { SKILL_SKINNING, SKILL_LEATHERWORKING };
+                if (roll < 80) return { SKILL_MINING, SKILL_ENGINEERING };
+                return { SKILL_HERBALISM, SKILL_ENCHANTING };
+
+            case CLASS_MAGE:
+                // 70% Tailoring+Enchanting, 20% Herbalism+Alchemy,
+                // 10% Mining+Engineering.
+                if (roll < 70) return { SKILL_TAILORING, SKILL_ENCHANTING };
+                if (roll < 90) return { SKILL_HERBALISM, SKILL_ALCHEMY };
+                return { SKILL_MINING, SKILL_ENGINEERING };
+
+            case CLASS_PRIEST:
+                // 75% Tailoring+Enchanting, 20% Herbalism+Alchemy,
+                // 5% Mining+Engineering.
+                if (roll < 75) return { SKILL_TAILORING, SKILL_ENCHANTING };
+                if (roll < 95) return { SKILL_HERBALISM, SKILL_ALCHEMY };
+                return { SKILL_MINING, SKILL_ENGINEERING };
+
+            case CLASS_WARLOCK:
+                // 70% Tailoring+Enchanting, 20% Herbalism+Alchemy,
+                // 10% Mining+Engineering.
+                if (roll < 70) return { SKILL_TAILORING, SKILL_ENCHANTING };
+                if (roll < 90) return { SKILL_HERBALISM, SKILL_ALCHEMY };
+                return { SKILL_MINING, SKILL_ENGINEERING };
+
+            default:
+                // Defensive fallback for an unexpected class.
+                return { SKILL_HERBALISM, SKILL_ALCHEMY };
         }
-
-        // Defensive fallback; pairIndex is always 0..35 so this should never be reached.
-        return { SKILL_MINING, SKILL_BLACKSMITHING };
     }
 
     void ResetPrimaryProfessionsOnce(Player* bot)
@@ -76,10 +135,11 @@ namespace
 
         checkedBots.insert(botGuid);
 
-        // Persistent migration marker. We deliberately check row existence directly instead of
-        // RandomPlayerbotMgr::GetValue because ordinary random-bot events expire.
+        // v2 intentionally re-runs the migration for bots that already received the old
+        // arbitrary-pair v1 assignment. This clears those professions before the new
+        // class-weighted profession package is enforced.
         auto resetMarker = CharacterDatabase.PQuery(
-            "SELECT 1 FROM ai_playerbot_random_bots WHERE owner = 0 AND bot = '%u' AND event = 'profession_reset_v1' LIMIT 1",
+            "SELECT 1 FROM ai_playerbot_random_bots WHERE owner = 0 AND bot = '%u' AND event = 'profession_reset_v2' LIMIT 1",
             botGuid);
 
         if (resetMarker)
@@ -100,11 +160,11 @@ namespace
         // Keep the marker effectively permanent. It is only used as a row-existence marker,
         // but a long validity also prevents generic event cleanup from treating it as stale.
         CharacterDatabase.PExecute(
-            "INSERT INTO ai_playerbot_random_bots (owner, bot, `time`, validIn, event, `value`) VALUES (0, '%u', '%u', '2147483647', 'profession_reset_v1', 1)",
+            "INSERT INTO ai_playerbot_random_bots (owner, bot, `time`, validIn, event, `value`) VALUES (0, '%u', '%u', '2147483647', 'profession_reset_v2', 1)",
             botGuid, (uint32)time(0));
 
         if (resetAnyProfession)
-            sLog.outDetail("Bot %u primary professions reset for profession-pair migration", botGuid);
+            sLog.outDetail("Bot %u primary professions reset for class-weighted profession migration v2", botGuid);
     }
 }
 
@@ -216,7 +276,7 @@ std::vector<TrainerSpell const*> TrainableSpellsValue::Calculate()
 
     bool enforcePrimaryProfessionPair = sRandomPlayerbotMgr.IsRandomBot(bot);
     ResetPrimaryProfessionsOnce(bot);
-    auto [primaryProfessionOne, primaryProfessionTwo] = GetPrimaryProfessionPair(ai);
+    auto [primaryProfessionOne, primaryProfessionTwo] = GetPrimaryProfessionPair(ai, bot);
 
     int8 qualifierType = getQualifier().empty() ? -1 : stoi(getQualifier());
 
